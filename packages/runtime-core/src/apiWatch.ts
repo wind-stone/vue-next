@@ -76,6 +76,7 @@ export function watchEffect(
   effect: WatchEffect,
   options?: WatchOptionsBase
 ): WatchStopHandle {
+  // watchEffect 不需要回调函数 cb
   return doWatch(effect, null, options)
 }
 
@@ -142,6 +143,8 @@ export function watch<T = any, Immediate extends Readonly<boolean> = false>(
 function doWatch(
   source: WatchSource | WatchSource[] | WatchEffect | object,
   cb: WatchCallback | null,
+  // immediate、deep 是 watch 独有的选项
+  // flush、onTrack、onTrigger 是 watch 和 watchEffect 共有的选项
   { immediate, deep, flush, onTrack, onTrigger }: WatchOptions = EMPTY_OBJ,
   instance = currentInstance
 ): WatchStopHandle {
@@ -177,6 +180,7 @@ function doWatch(
     getter = () => (source as Ref).value
     forceTrigger = !!(source as Ref)._shallow
   } else if (isReactive(source)) {
+    // 若是响应式对象，则深度监听响应式对象内部的变化
     getter = () => source
     deep = true
   } else if (isArray(source)) {
@@ -236,6 +240,7 @@ function doWatch(
     }
   }
 
+  // 深度监听 getter 返回值内部的变化
   if (cb && deep) {
     const baseGetter = getter
     getter = () => traverse(baseGetter())
@@ -266,8 +271,10 @@ function doWatch(
   }
 
   let oldValue = isMultiSource ? [] : INITIAL_WATCHER_VALUE
+  // job 是 watch 和 watchEffect 共用的
   const job: SchedulerJob = () => {
     if (!runner.active) {
+      // 已经执行 stop(runner) 停止了副作用
       return
     }
     if (cb) {
@@ -285,6 +292,7 @@ function doWatch(
           isArray(newValue) &&
           isCompatEnabled(DeprecationTypes.WATCH_ARRAY, instance))
       ) {
+        // 运行新的 cb 之前，需要调用上一次传递给 onInvalidate 的函数执行
         // cleanup before running cb again
         if (cleanup) {
           cleanup()
@@ -326,29 +334,37 @@ function doWatch(
   }
 
   const runner = effect(getter, {
+    // 设置 lazy: true，是避免立即执行 effect，因为针对 watch/watchEffect，需要考虑：
+    //   - immediate、deep、flush 等参数
+    //   - cb
     lazy: true,
     onTrack,
     onTrigger,
     scheduler
   })
 
+  // 将 runner 加入到 currentInstance.effects 数组里
   recordInstanceBoundEffect(runner, instance)
 
   // initial run
   if (cb) {
+    // 首次运行时，只有 watch() 会走这里，watchEffect 没有 cb
     if (immediate) {
       job()
     } else {
       oldValue = runner()
     }
   } else if (flush === 'post') {
+    // 在组件更新之后运行
     queuePostRenderEffect(runner, instance && instance.suspense)
   } else {
     runner()
   }
 
+  // 调用该函数，停止副作用
   return () => {
     stop(runner)
+    // 停止副作用时，将 runner 从 instance.effects 数组移除
     if (instance) {
       remove(instance.effects!, runner)
     }
@@ -389,6 +405,9 @@ export function createPathGetter(ctx: any, path: string) {
   }
 }
 
+/**
+ * 递归地触发 value 内部所有子孙属性的 getter，进行依赖收集
+ */
 function traverse(value: unknown, seen: Set<unknown> = new Set()) {
   if (!isObject(value) || seen.has(value)) {
     return value

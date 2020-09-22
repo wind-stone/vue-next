@@ -14,9 +14,12 @@ import {
 import { UnwrapRef, Ref } from './ref'
 
 export const enum ReactiveFlags {
+  // 通过向原始对象添加 ReactiveFlags.SKIP 属性为 true，来跳过响应式处理
   SKIP = '__v_skip',
+  // 代理对象根据它是 reactive 或 readonly 的， 将 ReactiveFlags.isReactive 或 ReactiveFlags.isReadonly 属性值设置为 true。
   IS_REACTIVE = '__v_isReactive',
   IS_READONLY = '__v_isReadonly',
+  // 代理对象会通过 ReactiveFlags.raw 引用原始对象
   RAW = '__v_raw'
 }
 
@@ -27,6 +30,9 @@ export interface Target {
   [ReactiveFlags.RAW]?: any
 }
 
+// 使用 WeakMap 作为 Hash 来保存 target - proxy 键值对的好处是，
+// 一旦 target 没有在其他地方被引用了，垃圾回收机制就会释放 target 占用的内存
+// 同时，WeakMap 里的该键值对也会消失，进而 proxy 也就会被垃圾回收（如果 proxy 没有在其他地方被引用）
 export const reactiveMap = new WeakMap<Target, any>()
 export const shallowReactiveMap = new WeakMap<Target, any>()
 export const readonlyMap = new WeakMap<Target, any>()
@@ -211,6 +217,7 @@ function createReactiveObject(
 
 export function isReactive(value: unknown): boolean {
   if (isReadonly(value)) {
+    // 若 value 是 readonly，还需要判断 value 的代理的目标对象是否是 reactive
     return isReactive((value as Target)[ReactiveFlags.RAW])
   }
   return !!(value && (value as Target)[ReactiveFlags.IS_REACTIVE])
@@ -224,12 +231,14 @@ export function isProxy(value: unknown): boolean {
   return isReactive(value) || isReadonly(value)
 }
 
+// 递归地获取代理对象 observed 的目标对象，若 observed 不是代理对象，则直接返回 observed 本身
 export function toRaw<T>(observed: T): T {
   return (
     (observed && toRaw((observed as Target)[ReactiveFlags.RAW])) || observed
   )
 }
 
+// 标记 value 是非代理对象，这样以后 value 就不会被代理了，即使用 reactive(value) 等操作返回的还是 value
 export function markRaw<T extends object>(value: T): T {
   def(value, ReactiveFlags.SKIP, true)
   return value

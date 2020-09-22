@@ -66,6 +66,9 @@ export function effect<T = any>(
   return effect
 }
 
+/**
+ * 停止副作用 effect
+ */
 export function stop(effect: ReactiveEffect) {
   if (effect.active) {
     cleanup(effect)
@@ -89,11 +92,13 @@ function createReactiveEffect<T = any>(
     if (!effectStack.includes(effect)) {
       cleanup(effect)
       try {
+        // 将当前 activeEffect 和 shouldTrack 暂存，将 effect 设为新的 activeEffect 并开启 shouldTrack
         enableTracking()
         effectStack.push(effect)
         activeEffect = effect
         return fn()
       } finally {
+        // 还原暂存的 activeEffect 和 shouldTrack
         effectStack.pop()
         resetTracking()
         activeEffect = effectStack[effectStack.length - 1]
@@ -110,10 +115,14 @@ function createReactiveEffect<T = any>(
   return effect
 }
 
+/**
+ * 解决 effect 与其所有依赖项的关系，并清空 effect.deps 数组
+ */
 function cleanup(effect: ReactiveEffect) {
   const { deps } = effect
   if (deps.length) {
     for (let i = 0; i < deps.length; i++) {
+      // deps[i] 是依赖项的 effect 集合（Set）
       deps[i].delete(effect)
     }
     deps.length = 0
@@ -138,6 +147,9 @@ export function resetTracking() {
   shouldTrack = last === undefined ? true : last
 }
 
+/**
+ * 依赖收集
+ */
 export function track(target: object, type: TrackOpTypes, key: unknown) {
   if (!shouldTrack || activeEffect === undefined) {
     return
@@ -150,6 +162,7 @@ export function track(target: object, type: TrackOpTypes, key: unknown) {
   if (!dep) {
     depsMap.set(key, (dep = new Set()))
   }
+  // activeEffect 是当前 active 的 watcher？
   if (!dep.has(activeEffect)) {
     dep.add(activeEffect)
     activeEffect.deps.push(dep)
@@ -164,6 +177,9 @@ export function track(target: object, type: TrackOpTypes, key: unknown) {
   }
 }
 
+/**
+ * 数据发生变化时，运行对应的 dep
+ */
 export function trigger(
   target: object,
   type: TriggerOpTypes,
@@ -180,6 +196,7 @@ export function trigger(
 
   const effects = new Set<ReactiveEffect>()
   const add = (effectsToAdd: Set<ReactiveEffect> | undefined) => {
+    // effectsToAdd 是个 Set 实例，存储是 target 的某个 key 对应的 effects
     if (effectsToAdd) {
       effectsToAdd.forEach(effect => {
         if (effect !== activeEffect || effect.allowRecurse) {
@@ -194,6 +211,9 @@ export function trigger(
     // trigger all effects for target
     depsMap.forEach(add)
   } else if (key === 'length' && isArray(target)) {
+    // 设置数组的 length 时，需要
+    //   - 运行大于等于新 length 的下标的 dep
+    //   - 运行 length 的 dep
     depsMap.forEach((dep, key) => {
       if (key === 'length' || key >= (newValue as number)) {
         add(dep)
@@ -209,11 +229,13 @@ export function trigger(
     switch (type) {
       case TriggerOpTypes.ADD:
         if (!isArray(target)) {
+          // 需要运行遍历的 dep，下同；PS: 对 ITERATE_KEY 这个 key 的依赖收集是在 Proxy 的 handler.ownKeys 里完成的。
           add(depsMap.get(ITERATE_KEY))
           if (isMap(target)) {
             add(depsMap.get(MAP_KEY_ITERATE_KEY))
           }
         } else if (isIntegerKey(key)) {
+          // 针对添加大于等于 length 的下标，需要运行数组 length 的 dep
           // new index added to array -> length changes
           add(depsMap.get('length'))
         }
@@ -247,6 +269,7 @@ export function trigger(
       })
     }
     if (effect.options.scheduler) {
+      // 定义 effect 时若传入了 scheduler，则运行 effect 的时机交给 scheduler 方法
       effect.options.scheduler(effect)
     } else {
       effect()

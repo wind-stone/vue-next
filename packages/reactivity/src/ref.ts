@@ -57,6 +57,7 @@ class RefImpl<T> {
   public readonly __v_isRef = true
 
   constructor(private _rawValue: T, public readonly _shallow = false) {
+    // 非 shallow 时，对 _rawValue 做响应式处理，返回代理对象
     this._value = _shallow ? _rawValue : convert(_rawValue)
   }
 

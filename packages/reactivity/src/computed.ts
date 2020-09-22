@@ -22,6 +22,7 @@ export interface WritableComputedOptions<T> {
 
 class ComputedRefImpl<T> {
   private _value!: T
+  // 注意 _dirty 默认值为 true，在外部首次获取 computed.value 时才计算 getter
   private _dirty = true
 
   public readonly effect: ReactiveEffect<T>
@@ -37,6 +38,7 @@ class ComputedRefImpl<T> {
     this.effect = effect(getter, {
       lazy: true,
       scheduler: () => {
+        // computed 的依赖项变化后，不立刻计算，只是标志 _dirty = true，并通知依赖 computed 的 effect
         if (!this._dirty) {
           this._dirty = true
           trigger(toRaw(this), TriggerOpTypes.SET, 'value')
@@ -50,6 +52,7 @@ class ComputedRefImpl<T> {
   get value() {
     // the computed ref may get wrapped by other proxies e.g. readonly() #3376
     const self = toRaw(this)
+    // 外部获取 computed.value 时，仅在 computed 发生变化时进行计算，否则不计算
     if (self._dirty) {
       self._value = this.effect()
       self._dirty = false
